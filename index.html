@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>LOOK — Sticker Collection</title>
+<style>
+:root{
+  --bg:#f5f3ee;
+  --ink:#171717;
+  --accent:#111111;
+  --line:rgba(0,0,0,.12);
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Arial,sans-serif;
+}
+#app{height:100%;display:flex;flex-direction:column}
+#topbar{
+  height:58px;flex:0 0 58px;display:flex;align-items:center;justify-content:center;
+  gap:10px;padding:8px 14px;background:rgba(245,243,238,.92);
+  border-bottom:1px solid var(--line);backdrop-filter:blur(10px);z-index:5;
+}
+button{
+  border:1px solid var(--line);background:rgba(255,255,255,.55);color:var(--ink);
+  height:38px;min-width:38px;padding:0 12px;border-radius:10px;cursor:pointer;
+  font:600 14px inherit;
+}
+button:hover{background:#fff}
+#counter{min-width:78px;text-align:center;font-size:14px;font-weight:700}
+#viewer{
+  flex:1;min-height:0;overflow:hidden;position:relative;
+  display:flex;align-items:center;justify-content:center;
+  padding:24px;touch-action:none;
+}
+#stage{
+  position:relative;display:flex;align-items:center;justify-content:center;
+  max-width:100%;max-height:100%;
+  transform-origin:center center;
+  transition:transform .18s ease;
+}
+canvas{
+  display:block;background:white;box-shadow:0 18px 55px rgba(0,0,0,.16);
+  max-width:calc(100vw - 48px);max-height:calc(100vh - 106px);
+}
+#hint{
+  position:absolute;left:50%;bottom:12px;transform:translateX(-50%);
+  font-size:11px;font-weight:600;opacity:.48;pointer-events:none;white-space:nowrap;
+}
+@media(max-width:600px){
+  #topbar{height:52px;flex-basis:52px;gap:6px;padding:7px}
+  button{height:36px;min-width:36px;padding:0 9px}
+  #viewer{padding:10px}
+  canvas{max-width:calc(100vw - 20px);max-height:calc(100vh - 72px)}
+  #hint{display:none}
+}
+/* Reduce casual saving/copying interactions. */
+canvas { user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <button id="prev" aria-label="Previous page">←</button>
+    <div id="counter">1 / 6</div>
+    <button id="next" aria-label="Next page">→</button>
+    <button id="minus" aria-label="Zoom out">−</button>
+    <button id="plus" aria-label="Zoom in">+</button>
+    <button id="fit" aria-label="Fit page">Fit</button>
+    <button id="full" aria-label="Fullscreen">⛶</button>
+  </div>
+  <main id="viewer">
+    <div id="stage"><canvas id="canvas"></canvas></div>
+    <div id="hint">Swipe / drag to change page • ← → on keyboard</div>
+  </main>
+</div>
+
+<script type="module">
+import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+
+const pdf = await pdfjsLib.getDocument("book.pdf").promise;
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d", {alpha:false});
+const viewer = document.getElementById("viewer");
+const stage = document.getElementById("stage");
+const counter = document.getElementById("counter");
+
+let pageNo = 1, zoom = 1, baseScale = 1, rendering = false;
+let startX = null, startY = null;
+
+function fitScale(page){
+  const unscaled = page.getViewport({scale:1});
+  const maxW = viewer.clientWidth - 48;
+  const maxH = viewer.clientHeight - 48;
+  return Math.min(maxW/unscaled.width, maxH/unscaled.height);
+}
+
+async function render(n){
+  if(rendering) return;
+  rendering = true;
+  const page = await pdf.getPage(n);
+  baseScale = fitScale(page);
+  const scale = baseScale * zoom;
+  const viewport = page.getViewport({scale});
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  canvas.style.width = viewport.width + "px";
+  canvas.style.height = viewport.height + "px";
+  await page.render({canvasContext:ctx, viewport}).promise;
+  counter.textContent = `${pageNo} / ${pdf.numPages}`;
+  rendering = false;
+}
+function setPage(n){
+  n = Math.max(1, Math.min(pdf.numPages,n));
+  if(n !== pageNo){ pageNo=n; zoom=1; render(pageNo); }
+}
+function zoomTo(z){
+  zoom=Math.max(.65,Math.min(2.6,z));
+  render(pageNo);
+}
+document.getElementById("prev").onclick=()=>setPage(pageNo-1);
+document.getElementById("next").onclick=()=>setPage(pageNo+1);
+document.getElementById("minus").onclick=()=>zoomTo(zoom-.2);
+document.getElementById("plus").onclick=()=>zoomTo(zoom+.2);
+document.getElementById("fit").onclick=()=>{zoom=1;render(pageNo)};
+document.getElementById("full").onclick=()=>document.documentElement.requestFullscreen?.();
+
+window.addEventListener("contextmenu", e => e.preventDefault());
+window.addEventListener("dragstart", e => e.preventDefault());
+window.addEventListener("copy", e => e.preventDefault());
+window.addEventListener("cut", e => e.preventDefault());
+window.addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight" || e.key==="PageDown") setPage(pageNo+1);
+  if(e.key==="ArrowLeft" || e.key==="PageUp") setPage(pageNo-1);
+  if(e.key==="+" || e.key==="=") zoomTo(zoom+.2);
+  if(e.key==="-") zoomTo(zoom-.2);
+  if(e.key==="Home") setPage(1);
+  if(e.key==="End") setPage(pdf.numPages);
+  if((e.ctrlKey||e.metaKey) && ["s","p","u"].includes(e.key.toLowerCase())) e.preventDefault();
+  if(e.key==="F12" || (e.ctrlKey && e.shiftKey && ["i","j","c"].includes(e.key.toLowerCase()))) e.preventDefault();
+});
+
+viewer.addEventListener("pointerdown",e=>{
+  startX=e.clientX; startY=e.clientY; viewer.setPointerCapture?.(e.pointerId);
+});
+viewer.addEventListener("pointerup",e=>{
+  if(startX===null) return;
+  const dx=e.clientX-startX, dy=e.clientY-startY;
+  startX=startY=null;
+  if(Math.abs(dx)>55 && Math.abs(dx)>Math.abs(dy)*1.25){
+    setPage(pageNo + (dx<0 ? 1 : -1));
+  }
+});
+window.addEventListener("resize",()=>render(pageNo));
+render(pageNo);
+</script>
+</body>
+</html>
